@@ -1,0 +1,43 @@
+services:
+  backend:
+    build:
+      context: ./Backend
+      dockerfile: Dockerfile
+    container_name: freshmart-backend
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Production
+      - ASPNETCORE_URLS=http://+:8080
+      - ConnectionStrings__Default=Data Source=/app/data/freshmart.db
+      - Jwt__Key=super-secret-jwt-key-change-in-production-min32chars!
+      - Jwt__Issuer=GroceryApp
+      - Jwt__Audience=GroceryApp
+      - Jwt__ExpiryMinutes=60
+      - Cors__AllowedOrigins__0=http://localhost
+      - Razorpay__KeyId=rzp_test_SUyjgRsGA1yTtX
+      - Razorpay__KeySecret=w4afjj4y6ZVwulsaN4zi3kOz
+      - Email__Host=smtp.gmail.com
+      - Email__Port=587
+      - Email__Username=aryandalal081@gmail.com
+      - Email__Password=qgmvvfnqrczphsyo
+      - Email__From=aryandalal081@gmail.com
+      - Email__FromName=FreshMart
+      - App__Url=http://localhost
+    volumes:
+      - freshmart-db:/app/data
+    ports:
+      - "5238:8080"
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./Frontend
+      dockerfile: Dockerfile
+    container_name: freshmart-frontend
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+volumes:
+  freshmart-db:
