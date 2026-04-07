@@ -450,17 +450,37 @@ export class LocationService {
         async (position) => {
           const { latitude, longitude } = position.coords;
 
-          // In a real app, you would reverse geocode to get the address
-          // For now, we'll use a placeholder
-          const location: UserLocation = {
-            address: `Location (${latitude.toFixed(4)}, ${longitude.toFixed(4)})`,
-            latitude,
-            longitude,
-            city: 'Current City',
-            area: 'Current Area'
-          };
+          try {
+            const res = await fetch(
+              `https://nominatim.openstreetmap.org/reverse?lat=${latitude}&lon=${longitude}&format=json`,
+              { headers: { 'Accept-Language': 'en' } }
+            );
+            const data = await res.json();
+            const a = data.address ?? {};
+            const name =
+              a.suburb ?? a.neighbourhood ?? a.village ?? a.town ?? a.city ?? a.county ?? 'Unknown Area';
+            const city = a.city ?? a.town ?? a.village ?? a.county ?? '';
+            const state = a.state ?? '';
+            const country = a.country ?? '';
+            const fullAddress = [name, city, state, country].filter(Boolean).join(', ');
 
-          resolve(location);
+            resolve({
+              address: fullAddress,
+              latitude,
+              longitude,
+              city,
+              area: name
+            });
+          } catch {
+            // Fallback if reverse geocode fails
+            resolve({
+              address: `${latitude.toFixed(4)}, ${longitude.toFixed(4)}`,
+              latitude,
+              longitude,
+              city: '',
+              area: ''
+            });
+          }
         },
         (error) => {
           reject(error);

@@ -1,5 +1,4 @@
 using SharedKernel.Domain;
-using SharedKernel.Events;
 
 namespace PaymentService.Domain;
 
@@ -36,7 +35,6 @@ public class Payment : AggregateRoot
         StripeChargeId = chargeId;
         ProcessedAt = DateTime.UtcNow;
         SetUpdated();
-        AddDomainEvent(new PaymentCompletedEvent(Id, OrderId, Amount, chargeId, DateTime.UtcNow));
     }
 
     public void Fail(string reason)
@@ -44,7 +42,6 @@ public class Payment : AggregateRoot
         Status = PaymentStatus.Failed;
         FailureReason = reason;
         SetUpdated();
-        AddDomainEvent(new PaymentFailedEvent(Id, OrderId, reason, DateTime.UtcNow));
     }
 
     public void Refund()

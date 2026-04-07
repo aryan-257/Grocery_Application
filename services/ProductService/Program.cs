@@ -48,7 +48,7 @@ builder.Services.AddAuthorization();
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
-builder.Services.AddHealthChecks().AddDbContextCheck<ProductDbContext>();
+builder.Services.AddHealthChecks();
 
 builder.Services.AddCors(opt =>
     opt.AddPolicy("AllowGateway", p =>
@@ -60,8 +60,11 @@ var app = builder.Build();
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<ProductDbContext>();
-    await db.Database.MigrateAsync();
-    await ProductDbSeeder.SeedAsync(db);
+    for (int i = 0; i < 10; i++)
+    {
+        try { await db.Database.MigrateAsync(); await ProductDbSeeder.SeedAsync(db); break; }
+        catch (Exception ex) { Log.Warning("DB not ready (attempt {Attempt}): {Message}", i + 1, ex.Message); await Task.Delay(5000); }
+    }
 }
 
 app.UseSerilogRequestLogging();

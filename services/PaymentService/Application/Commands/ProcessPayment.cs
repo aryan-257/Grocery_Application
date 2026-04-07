@@ -1,10 +1,12 @@
 using FluentValidation;
 using PaymentService.Domain;
+using PaymentService.Infrastructure.Services;
 using SharedKernel.CQRS;
 using SharedKernel.Domain;
 using SharedKernel.Messaging;
 using SharedKernel.Events;
 using Stripe;
+using DomainPaymentMethod = PaymentService.Domain.PaymentMethod;
 
 namespace PaymentService.Application.Commands;
 
@@ -13,7 +15,7 @@ public record ProcessPaymentCommand(
     Guid CustomerId,
     decimal Amount,
     string PaymentMethodId,
-    PaymentMethod Method) : ICommand<ProcessPaymentResponse>;
+    DomainPaymentMethod Method) : ICommand<ProcessPaymentResponse>;
 
 public record ProcessPaymentResponse(Guid PaymentId, string Status, string? ClientSecret);
 

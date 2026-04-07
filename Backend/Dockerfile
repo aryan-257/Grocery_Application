@@ -10,5 +10,6 @@ WORKDIR /app
 COPY --from=build /app/publish .
 VOLUME /app/data
 ENV ConnectionStrings__Default="Data Source=/app/data/freshmart.db"
+ENV ASPNETCORE_DataProtection__KeyStoragePath="/app/data/keys"
 EXPOSE 8080
 ENTRYPOINT ["dotnet", "Backend.dll"]

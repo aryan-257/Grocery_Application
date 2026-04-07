@@ -1,3 +1,4 @@
+using AuthService.Application.Services;
 using AuthService.Domain;
 using FluentValidation;
 using MediatR;

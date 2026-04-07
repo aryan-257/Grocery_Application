@@ -1,5 +1,4 @@
 using SharedKernel.Domain;
-using SharedKernel.Events;
 
 namespace DeliveryService.Domain;
 
@@ -38,7 +37,6 @@ public class Delivery : AggregateRoot
         Status = DeliveryStatus.Assigned;
         EstimatedDelivery = estimatedDelivery;
         SetUpdated();
-        AddDomainEvent(new DeliveryAssignedEvent(Id, OrderId, driverId, estimatedDelivery, DateTime.UtcNow));
     }
 
     public void UpdateLocation(double lat, double lng)

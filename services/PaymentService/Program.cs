@@ -43,7 +43,7 @@ builder.Services.AddAuthorization();
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
-builder.Services.AddHealthChecks().AddDbContextCheck<PaymentDbContext>();
+builder.Services.AddHealthChecks();
 
 builder.Services.AddCors(opt =>
     opt.AddPolicy("AllowGateway", p =>
@@ -55,7 +55,11 @@ var app = builder.Build();
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<PaymentDbContext>();
-    await db.Database.MigrateAsync();
+    for (int i = 0; i < 10; i++)
+    {
+        try { await db.Database.MigrateAsync(); break; }
+        catch (Exception ex) { Log.Warning("DB not ready (attempt {Attempt}): {Message}", i + 1, ex.Message); await Task.Delay(5000); }
+    }
 }
 
 app.UseSerilogRequestLogging();

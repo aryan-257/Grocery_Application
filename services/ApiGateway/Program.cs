@@ -46,6 +46,8 @@ builder.Services.AddCors(opt =>
     opt.AddPolicy("AllowFrontend", p =>
         p.WithOrigins("http://localhost:4200").AllowAnyHeader().AllowAnyMethod().AllowCredentials()));
 
+builder.Services.AddHealthChecks();
+
 var app = builder.Build();
 
 app.UseSerilogRequestLogging();

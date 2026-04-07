@@ -1,5 +1,4 @@
 using SharedKernel.Domain;
-using SharedKernel.Events;
 
 namespace OrderService.Domain;
 
@@ -47,11 +46,6 @@ public class Order : AggregateRoot
         order.TaxAmount = Math.Round(order.SubTotal * taxRate, 2);
         order.TotalAmount = order.SubTotal + order.DeliveryFee + order.TaxAmount;
 
-        order.AddDomainEvent(new OrderCreatedEvent(
-            order.Id, order.CustomerId, order.TotalAmount,
-            order._items.Select(i => new OrderItemDto(i.ProductId, i.ProductName, i.Quantity, i.UnitPrice)).ToList(),
-            DateTime.UtcNow));
-
         return order;
     }
 
@@ -65,7 +59,6 @@ public class Order : AggregateRoot
     {
         Status = OrderStatus.PaymentFailed;
         SetUpdated();
-        AddDomainEvent(new OrderCancelledEvent(Id, "Payment failed", DateTime.UtcNow));
     }
 
     public void StartProcessing()
@@ -91,7 +84,6 @@ public class Order : AggregateRoot
         Status = OrderStatus.Cancelled;
         CancellationReason = reason;
         SetUpdated();
-        AddDomainEvent(new OrderCancelledEvent(Id, reason, DateTime.UtcNow));
     }
 
     public void SetEstimatedDelivery(DateTime eta) { EstimatedDelivery = eta; SetUpdated(); }
