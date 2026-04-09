@@ -1,20 +1,116 @@
 services:
-  backend:
-    build:
-      context: ./Backend
-      dockerfile: Dockerfile
-    container_name: freshmart-backend
+
+  sqlserver:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    container_name: freshmart-sqlserver
     environment:
-      - ASPNETCORE_ENVIRONMENT=Production
+      - SA_PASSWORD=FreshMart@2024
+      - ACCEPT_EULA=Y
+      - MSSQL_PID=Express
+    ports:
+      - "1433:1433"
+    volumes:
+      - sqlserver-data:/var/opt/mssql
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P FreshMart@2024 -Q 'SELECT 1' -No -C || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+    restart: unless-stopped
+
+  api-gateway:
+    build: ./Microservices/ApiGateway
+    container_name: freshmart-gateway
+    ports:
+      - "8080:8080"
+    environment:
       - ASPNETCORE_URLS=http://+:8080
-      - ConnectionStrings__Default=Data Source=/app/data/freshmart.db
+      - Jwt__Key=super-secret-jwt-key-change-in-production-min32chars!
+      - Jwt__Issuer=GroceryApp
+      - Jwt__Audience=GroceryApp
+      - Cors__AllowedOrigins__0=http://localhost
+    depends_on:
+      - auth-service
+      - product-service
+      - order-service
+      - payment-service
+      - notification-service
+      - support-service
+    restart: unless-stopped
+
+  auth-service:
+    build: ./Microservices/AuthService
+    container_name: freshmart-auth
+    environment:
+      - ASPNETCORE_URLS=http://+:5001
+      - ConnectionStrings__Default=Server=sqlserver,1433;Database=FreshMart_Auth;User Id=sa;Password=FreshMart@2024;TrustServerCertificate=True;
       - Jwt__Key=super-secret-jwt-key-change-in-production-min32chars!
       - Jwt__Issuer=GroceryApp
       - Jwt__Audience=GroceryApp
       - Jwt__ExpiryMinutes=60
-      - Cors__AllowedOrigins__0=http://localhost
-      - Razorpay__KeyId=rzp_test_SUyjgRsGA1yTtX
-      - Razorpay__KeySecret=w4afjj4y6ZVwulsaN4zi3kOz
+    depends_on:
+      sqlserver:
+        condition: service_healthy
+    restart: unless-stopped
+
+  product-service:
+    build: ./Microservices/ProductService
+    container_name: freshmart-products
+    environment:
+      - ASPNETCORE_URLS=http://+:5002
+      - ConnectionStrings__Default=Server=sqlserver,1433;Database=FreshMart_Product;User Id=sa;Password=FreshMart@2024;TrustServerCertificate=True;
+      - Jwt__Key=super-secret-jwt-key-change-in-production-min32chars!
+      - Jwt__Issuer=GroceryApp
+      - Jwt__Audience=GroceryApp
+    depends_on:
+      sqlserver:
+        condition: service_healthy
+    restart: unless-stopped
+
+  order-service:
+    build: ./Microservices/OrderService
+    container_name: freshmart-orders
+    environment:
+      - ASPNETCORE_URLS=http://+:5003
+      - ConnectionStrings__Default=Server=sqlserver,1433;Database=FreshMart_Order;User Id=sa;Password=FreshMart@2024;TrustServerCertificate=True;
+      - Jwt__Key=super-secret-jwt-key-change-in-production-min32chars!
+      - Jwt__Issuer=GroceryApp
+      - Jwt__Audience=GroceryApp
+      - Services__NotificationService=http://notification-service:5005
+      - Services__ProductService=http://product-service:5002
+      - Services__PaymentService=http://payment-service:5004
+      - Services__AuthService=http://auth-service:5001
+    depends_on:
+      sqlserver:
+        condition: service_healthy
+    restart: unless-stopped
+
+  payment-service:
+    build: ./Microservices/PaymentService
+    container_name: freshmart-payment
+    environment:
+      - ASPNETCORE_URLS=http://+:5004
+      - ConnectionStrings__Default=Server=sqlserver,1433;Database=FreshMart_Payment;User Id=sa;Password=FreshMart@2024;TrustServerCertificate=True;
+      - Jwt__Key=super-secret-jwt-key-change-in-production-min32chars!
+      - Jwt__Issuer=GroceryApp
+      - Jwt__Audience=GroceryApp
+      - Razorpay__KeyId=rzp_test_SaubjwPUyNxYWL
+      - Razorpay__KeySecret=oAcY6tnueDnkjJ7v698RjoiP
+    depends_on:
+      sqlserver:
+        condition: service_healthy
+    restart: unless-stopped
+
+  notification-service:
+    build: ./Microservices/NotificationService
+    container_name: freshmart-notifications
+    environment:
+      - ASPNETCORE_URLS=http://+:5005
+      - ConnectionStrings__Default=Server=sqlserver,1433;Database=FreshMart_Notification;User Id=sa;Password=FreshMart@2024;TrustServerCertificate=True;
+      - Jwt__Key=super-secret-jwt-key-change-in-production-min32chars!
+      - Jwt__Issuer=GroceryApp
+      - Jwt__Audience=GroceryApp
       - Email__Host=smtp.gmail.com
       - Email__Port=587
       - Email__Username=aryandalal081@gmail.com
@@ -22,22 +118,33 @@ services:
       - Email__From=aryandalal081@gmail.com
       - Email__FromName=FreshMart
       - App__Url=http://localhost
-    volumes:
-      - freshmart-db:/app/data
-    ports:
-      - "5238:8080"
+    depends_on:
+      sqlserver:
+        condition: service_healthy
+    restart: unless-stopped
+
+  support-service:
+    build: ./Microservices/SupportService
+    container_name: freshmart-support
+    environment:
+      - ASPNETCORE_URLS=http://+:5006
+      - ConnectionStrings__Default=Server=sqlserver,1433;Database=FreshMart_Support;User Id=sa;Password=FreshMart@2024;TrustServerCertificate=True;
+      - Jwt__Key=super-secret-jwt-key-change-in-production-min32chars!
+      - Jwt__Issuer=GroceryApp
+      - Jwt__Audience=GroceryApp
+    depends_on:
+      sqlserver:
+        condition: service_healthy
     restart: unless-stopped
 
   frontend:
-    build:
-      context: ./Frontend
-      dockerfile: Dockerfile
+    build: ./Frontend
     container_name: freshmart-frontend
     ports:
       - "80:80"
     depends_on:
-      - backend
+      - api-gateway
     restart: unless-stopped
 
 volumes:
-  freshmart-db:
+  sqlserver-data:

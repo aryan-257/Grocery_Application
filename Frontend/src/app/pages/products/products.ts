@@ -36,6 +36,64 @@ const CATEGORY_ICONS: Record<string, string> = {
         <span class="shop-cat-name">{{ cat.name }}</span>
       </button>
     }
+
+    <!-- Filter Panel -->
+    <div class="filter-divider"></div>
+    <p class="shop-sidebar-title">Filters</p>
+
+    <!-- Rating Filter -->
+    <div class="filter-section">
+      <p class="filter-label">⭐ Min Rating</p>
+      <div class="rating-options">
+        @for (r of [4,3,2,1]; track r) {
+          <button class="rating-btn" [class.rating-active]="minRating() === r" (click)="setRating(r)">
+            {{ r }}★ & up
+          </button>
+        }
+      </div>
+    </div>
+
+    <!-- Brand Filter -->
+    @if (availableBrands().length > 0) {
+      <div class="filter-section">
+        <p class="filter-label">🏷️ Brand</p>
+        <div class="brand-list">
+          @for (brand of availableBrands(); track brand) {
+            <label class="brand-item">
+              <input type="checkbox" [checked]="selectedBrands().includes(brand)" (change)="toggleBrand(brand)" class="brand-check" />
+              <span>{{ brand }}</span>
+            </label>
+          }
+        </div>
+      </div>
+    }
+
+    <!-- Unit/Weight Filter -->
+    @if (availableUnits().length > 0) {
+      <div class="filter-section">
+        <p class="filter-label">⚖️ Weight / Unit</p>
+        <div class="brand-list">
+          @for (unit of availableUnits(); track unit) {
+            <label class="brand-item">
+              <input type="checkbox" [checked]="selectedUnits().includes(unit)" (change)="toggleUnit(unit)" class="brand-check" />
+              <span>{{ unit }}</span>
+            </label>
+          }
+        </div>
+      </div>
+    }
+
+    <!-- In Stock Filter -->
+    <div class="filter-section">
+      <label class="brand-item">
+        <input type="checkbox" [(ngModel)]="inStockOnly" (ngModelChange)="applyFilters()" class="brand-check" />
+        <span>✅ In Stock Only</span>
+      </label>
+    </div>
+
+    @if (hasActiveFilters()) {
+      <button (click)="clearSidebarFilters()" class="filter-clear-btn">Clear Filters</button>
+    }
   </aside>
 
   <!-- Main -->
@@ -243,6 +301,21 @@ const CATEGORY_ICONS: Record<string, string> = {
     /* Toast */
     .shop-toast { position:fixed; bottom:24px; right:24px; background:linear-gradient(135deg,#1e293b,#0f172a); color:#f1f5f9; padding:12px 20px; border-radius:12px; font-size:14px; font-weight:600; box-shadow:0 8px 24px rgba(0,0,0,.3); z-index:1000; border:1px solid #334155; }
 
+    /* Filter Panel */
+    .filter-divider { border:none; border-top:1px solid var(--adm-border); margin:14px 0 10px; }
+    .filter-section { margin-bottom:14px; padding:0 4px; }
+    .filter-label { font-size:11px; font-weight:700; color:var(--adm-text3); text-transform:uppercase; letter-spacing:.08em; margin:0 0 8px; }
+    .rating-options { display:flex; flex-direction:column; gap:4px; }
+    .rating-btn { background:var(--adm-row-alt); border:1px solid var(--adm-border); color:var(--adm-text2); padding:6px 10px; border-radius:7px; font-size:12px; font-weight:500; cursor:pointer; text-align:left; transition:all .15s; }
+    .rating-btn:hover { border-color:#f59e0b; color:#f59e0b; }
+    .rating-active { background:rgba(245,158,11,.15) !important; border-color:#f59e0b !important; color:#d97706 !important; font-weight:700 !important; }
+    .brand-list { display:flex; flex-direction:column; gap:5px; max-height:140px; overflow-y:auto; }
+    .brand-item { display:flex; align-items:center; gap:8px; font-size:12px; color:var(--adm-text2); cursor:pointer; padding:3px 0; }
+    .brand-item:hover { color:var(--adm-text); }
+    .brand-check { accent-color:#22c55e; width:14px; height:14px; cursor:pointer; }
+    .filter-clear-btn { width:100%; margin-top:6px; background:rgba(239,68,68,.1); border:1px solid rgba(239,68,68,.3); color:#ef4444; padding:8px; border-radius:8px; font-size:12px; font-weight:700; cursor:pointer; transition:all .15s; }
+    .filter-clear-btn:hover { background:rgba(239,68,68,.2); }
+
     @media (max-width: 1024px) { .shop-grid { grid-template-columns:repeat(3,1fr); } }
     @media (max-width: 768px) { .shop-sidebar { display:none; } .shop-grid { grid-template-columns:repeat(2,1fr); } }
   `]
@@ -255,6 +328,7 @@ export class Products implements OnInit {
   private route = inject(ActivatedRoute);
 
   products = signal<Product[]>([]);
+  allLoadedProducts = signal<Product[]>([]);
   categories = signal<Category[]>([]);
   loading = signal(true);
   total = signal(0);
@@ -262,12 +336,26 @@ export class Products implements OnInit {
   toast = signal('');
   saleProducts = signal<Product[]>([]);
 
-  query = ''; categoryId = ''; sortBy = ''; onSaleOnly = false;
+  query = ''; categoryId = ''; sortBy = ''; onSaleOnly = false; inStockOnly = false;
   minPrice = signal<number | null>(null);
   maxPrice = signal<number | null>(null);
   minPriceInput: number | null = null;
   maxPriceInput: number | null = null;
+  minRating = signal<number | null>(null);
+  selectedBrands = signal<string[]>([]);
+  selectedUnits = signal<string[]>([]);
   private priceTimer: ReturnType<typeof setTimeout> | null = null;
+
+  availableBrands = computed(() =>
+    [...new Set(this.allLoadedProducts().map(p => p.brand).filter((b): b is string => !!b))].sort()
+  );
+  availableUnits = computed(() =>
+    [...new Set(this.allLoadedProducts().map(p => p.unit).filter((u): u is string => !!u))].sort()
+  );
+  hasActiveFilters = computed(() =>
+    this.minRating() !== null || this.selectedBrands().length > 0 ||
+    this.selectedUnits().length > 0 || this.inStockOnly
+  );
 
   totalPages = computed(() => Math.ceil(this.total() / 20));
   activeCategoryName = computed(() => this.categories().find(c => c.id === this.categoryId)?.name ?? '');
@@ -298,7 +386,11 @@ export class Products implements OnInit {
   private loadAll() {
     this.loading.set(true);
     this.productService.getProducts({ pageSize: 100 }).subscribe({
-      next: r => { this.products.set(r.items); this.total.set(r.total); this.loading.set(false); },
+      next: r => {
+        this.allLoadedProducts.set(r.items);
+        this.applyFilters();
+        this.loading.set(false);
+      },
       error: () => this.loading.set(false)
     });
   }
@@ -308,11 +400,54 @@ export class Products implements OnInit {
     this.productService.getProducts({
       query: this.query || undefined, categoryId: this.categoryId || undefined,
       sortBy: this.sortBy || undefined, minPrice: this.minPrice() ?? undefined,
-      maxPrice: this.maxPrice() ?? undefined, page: this.page(), pageSize: 20
+      maxPrice: this.maxPrice() ?? undefined, page: this.page(), pageSize: 100
     }).subscribe({
-      next: r => { this.products.set(r.items); this.total.set(r.total); this.loading.set(false); },
+      next: r => {
+        this.allLoadedProducts.set(r.items);
+        this.applyFilters();
+        this.loading.set(false);
+      },
       error: () => this.loading.set(false)
     });
+  }
+
+  applyFilters() {
+    let filtered = this.allLoadedProducts();
+    if (this.minRating() !== null)
+      filtered = filtered.filter(p => p.averageRating >= this.minRating()!);
+    if (this.selectedBrands().length > 0)
+      filtered = filtered.filter(p => p.brand && this.selectedBrands().includes(p.brand));
+    if (this.selectedUnits().length > 0)
+      filtered = filtered.filter(p => p.unit && this.selectedUnits().includes(p.unit));
+    if (this.inStockOnly)
+      filtered = filtered.filter(p => p.stockQuantity > 0);
+    this.products.set(filtered);
+    this.total.set(filtered.length);
+  }
+
+  setRating(r: number) {
+    this.minRating.set(this.minRating() === r ? null : r);
+    this.applyFilters();
+  }
+
+  toggleBrand(brand: string) {
+    const cur = this.selectedBrands();
+    this.selectedBrands.set(cur.includes(brand) ? cur.filter(b => b !== brand) : [...cur, brand]);
+    this.applyFilters();
+  }
+
+  toggleUnit(unit: string) {
+    const cur = this.selectedUnits();
+    this.selectedUnits.set(cur.includes(unit) ? cur.filter(u => u !== unit) : [...cur, unit]);
+    this.applyFilters();
+  }
+
+  clearSidebarFilters() {
+    this.minRating.set(null);
+    this.selectedBrands.set([]);
+    this.selectedUnits.set([]);
+    this.inStockOnly = false;
+    this.applyFilters();
   }
 
   selectCategory(id: string) {
@@ -344,6 +479,7 @@ export class Products implements OnInit {
     this.query = ''; this.categoryId = ''; this.sortBy = ''; this.onSaleOnly = false;
     this.minPrice.set(null); this.maxPrice.set(null);
     this.minPriceInput = null; this.maxPriceInput = null;
+    this.minRating.set(null); this.selectedBrands.set([]); this.selectedUnits.set([]); this.inStockOnly = false;
     this.page.set(1); this.loadAll();
   }
 

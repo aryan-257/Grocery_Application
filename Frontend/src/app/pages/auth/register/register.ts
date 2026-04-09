@@ -133,7 +133,13 @@ export class Register implements OnInit {
   submit() {
     this.loading.set(true); this.error.set('');
     this.auth.register(this.form).subscribe({
-      next: () => this.router.navigate(['/auth/login']),
+      next: () => {
+        // Auto-login after successful registration
+        this.auth.login(this.form.email, this.form.password).subscribe({
+          next: () => this.router.navigate(['/products']),
+          error: () => this.router.navigate(['/auth/login']) // fallback to login page
+        });
+      },
       error: (e) => { this.error.set(e.error?.error ?? 'Registration failed'); this.loading.set(false); }
     });
   }
