@@ -321,7 +321,7 @@ const ROLE_LABELS: Record<string, string> = {
         </div>
         <div class="flex gap-4 overflow-x-auto pb-2">
           @for (p of recentlyViewed.items().slice(0, 6); track p.id) {
-            <div (click)="router.navigate(['/products', p.id])" class="rv-card">
+            <div (click)="p.id && router.navigate(['/products', p.id])" class="rv-card">
               <div class="rv-img-wrap">
                 <img [src]="p.imageUrl" [alt]="p.name" class="rv-img" />
               </div>

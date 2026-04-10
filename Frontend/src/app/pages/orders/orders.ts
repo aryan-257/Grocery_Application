@@ -4,6 +4,7 @@ import { CommonModule, DatePipe } from '@angular/common';
 import { Order } from '../../core/models';
 import { OrderService } from '../../core/services/order.service';
 import { CartService } from '../../core/services/cart.service';
+import { InvoiceService } from '../../core/services/invoice.service';
 
 @Component({
   selector: 'app-orders',
@@ -43,7 +44,7 @@ import { CartService } from '../../core/services/cart.service';
           <div class="ord-card-top">
             <div class="ord-id-wrap">
               <span class="ord-id">#{{ order.id.slice(0,8).toUpperCase() }}</span>
-              <span class="ord-date">{{ order.createdAt | date:'dd MMM yyyy, hh:mm a' }}</span>
+              <span class="ord-date">{{ toLocal(order.createdAt) | date:'dd MMM yyyy, hh:mm a' }}</span>
             </div>
             <span class="ord-status" [class]="'ost-' + order.status.toLowerCase()">{{ order.status }}</span>
           </div>
@@ -63,6 +64,9 @@ import { CartService } from '../../core/services/cart.service';
             <button (click)="reorder(order)" class="ord-btn-reorder">Reorder</button>
             <button (click)="rateOrder(order)" [disabled]="order.status !== 'Delivered'" class="ord-btn-rate">
               Rate Order
+            </button>
+            <button (click)="downloadInvoice(order)" class="ord-btn-invoice" title="Download Invoice">
+              &#x1F4C4; Invoice
             </button>
           </div>
         </div>
@@ -117,6 +121,8 @@ import { CartService } from '../../core/services/cart.service';
     .ord-btn-rate { background:linear-gradient(135deg,#2563eb,#1d4ed8); color:#fff; border:none; font-size:13px; font-weight:700; padding:9px 18px; border-radius:9px; cursor:pointer; box-shadow:0 4px 12px rgba(37,99,235,.25); transition:all .2s; }
     .ord-btn-rate:hover:not(:disabled) { transform:translateY(-1px); }
     .ord-btn-rate:disabled { background:var(--adm-border); color:var(--adm-text3); cursor:not-allowed; box-shadow:none; }
+    .ord-btn-invoice { background:linear-gradient(135deg,#f59e0b,#d97706); color:#fff; border:none; font-size:13px; font-weight:700; padding:9px 18px; border-radius:9px; cursor:pointer; box-shadow:0 4px 12px rgba(245,158,11,.25); transition:all .2s; }
+    .ord-btn-invoice:hover { transform:translateY(-1px); box-shadow:0 6px 16px rgba(245,158,11,.35); }
 
     .ord-empty { text-align:center; padding:60px 20px; display:flex; flex-direction:column; align-items:center; gap:12px; }
     .ord-empty-icon { font-size:56px; }
@@ -132,6 +138,7 @@ export class Orders implements OnInit {
   private orderService = inject(OrderService);
   private cartService = inject(CartService);
   private router = inject(Router);
+  private invoiceService = inject(InvoiceService);
   orders = signal<Order[]>([]);
   loading = signal(true);
 
@@ -155,4 +162,14 @@ export class Orders implements OnInit {
   }
 
   rateOrder(order: Order) { this.router.navigate(['/orders', order.id, 'rate']); }
+
+  downloadInvoice(order: Order) { this.invoiceService.downloadInvoice(order); }
+
+  // Ensure UTC string is parsed as UTC so browser converts to local time correctly
+  toLocal(utcStr: string): Date {
+    if (!utcStr) return new Date();
+    // If string doesn't end with Z, add it so JS treats it as UTC
+    const s = utcStr.endsWith('Z') || utcStr.includes('+') ? utcStr : utcStr + 'Z';
+    return new Date(s);
+  }
 }

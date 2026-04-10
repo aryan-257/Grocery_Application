@@ -4,6 +4,8 @@ import { Router, RouterLink, ActivatedRoute } from '@angular/router';
 import { HttpClient } from '@angular/common/http';
 import { CartService } from '../../core/services/cart.service';
 import { NotificationService } from '../../core/services/notification.service';
+import { InvoiceService } from '../../core/services/invoice.service';
+import { OrderService } from '../../core/services/order.service';
 import { Coupon } from '../../core/models';
 import { environment } from '../../../environments/environment';
 
@@ -127,6 +129,8 @@ export class Checkout implements OnInit {
   private router = inject(Router);
   private route = inject(ActivatedRoute);
   private notifService = inject(NotificationService);
+  private invoiceService = inject(InvoiceService);
+  private orderService = inject(OrderService);
 
   cart = this.cartService.cart;
   address = ''; notes = '';
@@ -283,17 +287,20 @@ export class Checkout implements OnInit {
       RazorpaySignature: response.razorpay_signature
     }).subscribe({
       next: () => {
-        // Complete the order and clear cart
         this.http.post(`${environment.apiUrl}/api/v1/orders/${orderId}/complete-payment`, {}).subscribe({
           next: () => {
-            // Reload notifications so the new one appears immediately
             setTimeout(() => this.notifService.loadAll(), 1000);
-            alert('Payment successful! Your order has been placed.');
-            this.router.navigate(['/orders']);
+            // Auto-download invoice
+            this.orderService.getOrder(orderId).subscribe({
+              next: (order) => {
+                this.invoiceService.downloadInvoice(order);
+                this.router.navigate(['/orders']);
+              },
+              error: () => this.router.navigate(['/orders'])
+            });
           },
           error: () => {
             setTimeout(() => this.notifService.loadAll(), 1000);
-            alert('Payment successful! Your order has been placed.');
             this.router.navigate(['/orders']);
           }
         });

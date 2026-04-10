@@ -42,6 +42,8 @@ services:
   auth-service:
     build: ./Microservices/AuthService
     container_name: freshmart-auth
+    ports:
+      - "5001:5001"
     environment:
       - ASPNETCORE_URLS=http://+:5001
       - ConnectionStrings__Default=Server=sqlserver,1433;Database=FreshMart_Auth;User Id=sa;Password=FreshMart@2024;TrustServerCertificate=True;
@@ -57,6 +59,8 @@ services:
   product-service:
     build: ./Microservices/ProductService
     container_name: freshmart-products
+    ports:
+      - "5002:5002"
     environment:
       - ASPNETCORE_URLS=http://+:5002
       - ConnectionStrings__Default=Server=sqlserver,1433;Database=FreshMart_Product;User Id=sa;Password=FreshMart@2024;TrustServerCertificate=True;
@@ -71,6 +75,8 @@ services:
   order-service:
     build: ./Microservices/OrderService
     container_name: freshmart-orders
+    ports:
+      - "5003:5003"
     environment:
       - ASPNETCORE_URLS=http://+:5003
       - ConnectionStrings__Default=Server=sqlserver,1433;Database=FreshMart_Order;User Id=sa;Password=FreshMart@2024;TrustServerCertificate=True;
@@ -89,6 +95,8 @@ services:
   payment-service:
     build: ./Microservices/PaymentService
     container_name: freshmart-payment
+    ports:
+      - "5004:5004"
     environment:
       - ASPNETCORE_URLS=http://+:5004
       - ConnectionStrings__Default=Server=sqlserver,1433;Database=FreshMart_Payment;User Id=sa;Password=FreshMart@2024;TrustServerCertificate=True;
@@ -105,6 +113,8 @@ services:
   notification-service:
     build: ./Microservices/NotificationService
     container_name: freshmart-notifications
+    ports:
+      - "5005:5005"
     environment:
       - ASPNETCORE_URLS=http://+:5005
       - ConnectionStrings__Default=Server=sqlserver,1433;Database=FreshMart_Notification;User Id=sa;Password=FreshMart@2024;TrustServerCertificate=True;
@@ -126,6 +136,8 @@ services:
   support-service:
     build: ./Microservices/SupportService
     container_name: freshmart-support
+    ports:
+      - "5006:5006"
     environment:
       - ASPNETCORE_URLS=http://+:5006
       - ConnectionStrings__Default=Server=sqlserver,1433;Database=FreshMart_Support;User Id=sa;Password=FreshMart@2024;TrustServerCertificate=True;

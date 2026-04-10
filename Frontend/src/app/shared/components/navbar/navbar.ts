@@ -146,7 +146,7 @@ import { LocationService, LocationSuggestion } from '../../../core/services/loca
                           <div class="flex-1 min-w-0">
                             <p class="text-xs font-semibold text-gray-800 dark:text-gray-100 truncate">{{ n.title }}</p>
                             <p class="text-xs text-gray-500 dark:text-gray-400 mt-0.5 line-clamp-2">{{ n.message }}</p>
-                            <p class="text-[10px] text-gray-300 dark:text-gray-600 mt-1">{{ n.createdAt | date:'dd MMM, HH:mm' }}</p>
+                            <p class="text-[10px] text-gray-300 dark:text-gray-600 mt-1">{{ toLocal(n.createdAt) | date:'dd MMM, HH:mm' }}</p>
                           </div>
                           <div class="flex flex-col items-end gap-1 shrink-0">
                             @if (!n.isRead) {
@@ -382,8 +382,14 @@ export class Navbar implements OnInit {
     this.notifOpen.update(v => !v);
     if (this.notifOpen()) {
       this.menuOpen.set(false);
-      this.notif.loadAll(); // always refresh when opening
+      this.notif.loadAll();
     }
+  }
+
+  toLocal(utcStr: string): Date {
+    if (!utcStr) return new Date();
+    const s = utcStr.endsWith('Z') || utcStr.includes('+') ? utcStr : utcStr + 'Z';
+    return new Date(s);
   }
 
   openLocationModal() {
