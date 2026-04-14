@@ -9,15 +9,26 @@ using Microsoft.EntityFrameworkCore;
 
 namespace ProductService.Controllers;
 
+/// <summary>
+/// Manages customer reviews for products.
+/// Reviews are gated behind purchase verification — only customers who have
+/// a non-cancelled order containing the product may submit a review,
+/// and each customer may only review a product once.
+/// </summary>
 [ApiController]
 [Route("api/v1/products/{productId}/reviews")]
 public class ReviewsController(ProductDbContext db) : ControllerBase
 {
+    /// <summary>Extracts the authenticated user's ID from the JWT <c>sub</c> claim.</summary>
     private Guid UserId => Guid.Parse(
         User.FindFirstValue(JwtRegisteredClaimNames.Sub)
         ?? User.FindFirstValue(ClaimTypes.NameIdentifier)
         ?? throw new InvalidOperationException("User ID claim not found"));
 
+    /// <summary>
+    /// Returns all reviews for a given product, ordered by most recent first.
+    /// Accessible by: all users (anonymous).
+    /// </summary>
     [HttpGet]
     public async Task<IActionResult> GetReviews(Guid productId)
     {
@@ -30,6 +41,13 @@ public class ReviewsController(ProductDbContext db) : ControllerBase
         return Ok(reviews);
     }
 
+    /// <summary>
+    /// Checks whether the authenticated user is eligible to review a specific product.
+    /// Returns <c>canReview: true</c> only if the user has a non-cancelled order containing
+    /// the product AND has not already submitted a review for it.
+    /// Used by the frontend to show or hide the review submission form.
+    /// Accessible by: authenticated users.
+    /// </summary>
     [HttpGet("can-review")]
     [Authorize]
     public async Task<IActionResult> CanReview(Guid productId)
@@ -43,6 +61,14 @@ public class ReviewsController(ProductDbContext db) : ControllerBase
         return Ok(new { canReview = hasPurchased && !alreadyReviewed, alreadyReviewed });
     }
 
+    /// <summary>
+    /// Submits a new review for a product.
+    /// Enforces purchase verification and one-review-per-customer rules.
+    /// On success, recalculates and persists the product's average rating.
+    /// Returns 400 if the user has not purchased the product or the rating is out of range.
+    /// Returns 409 Conflict if the user has already reviewed this product.
+    /// Accessible by: authenticated users.
+    /// </summary>
     [HttpPost]
     [Authorize]
     public async Task<IActionResult> CreateReview(Guid productId, CreateReviewRequest req)

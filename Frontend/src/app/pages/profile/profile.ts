@@ -49,7 +49,7 @@ interface Address { id: string; label: string; line1: string; city: string; stat
     <!-- Sidebar -->
     <aside class="pf-sidebar">
       @for (t of tabs; track t.id) {
-        <button (click)="activeTab.set(t.id)" class="pf-tab" [class.pf-tab-active]="activeTab() === t.id">
+        <button (click)="selectTab(t.id)" class="pf-tab" [class.pf-tab-active]="activeTab() === t.id">
           <span>{{ t.label }}</span>
         </button>
       }
@@ -445,6 +445,11 @@ export class Profile implements OnInit {
     this.loadAddresses();
     this.loadPrivacyPrefs();
     this.route.queryParams.subscribe(p => { if (p['tab']) { this.activeTab.set(p['tab'] as Tab); if (p['tab'] === 'wishlist') this.loadWishlist(); } });
+  }
+
+  selectTab(tab: Tab) {
+    this.activeTab.set(tab);
+    if (tab === 'wishlist') this.loadWishlist();
   }
 
   loadWishlist() {

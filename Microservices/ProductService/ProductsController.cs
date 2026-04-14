@@ -7,10 +7,20 @@ using Microsoft.EntityFrameworkCore;
 
 namespace ProductService.Controllers;
 
+/// <summary>
+/// Manages the FreshMart product catalogue.
+/// Public endpoints allow browsing, searching, and filtering products.
+/// Write endpoints (create, update, delete, stock, discount) are restricted to Admin and StoreManager roles.
+/// </summary>
 [ApiController]
 [Route("api/v1/products")]
 public class ProductsController(ProductDbContext db) : ControllerBase
 {
+    /// <summary>
+    /// Returns a paginated list of active products with optional filtering and sorting.
+    /// Supports full-text search across name, description, brand, SKU, and category name.
+    /// Accessible by: all users (anonymous).
+    /// </summary>
     [HttpGet]
     public async Task<IActionResult> GetProducts(
         [FromQuery] string? query, [FromQuery] Guid? categoryId,
@@ -42,6 +52,12 @@ public class ProductsController(ProductDbContext db) : ControllerBase
         return Ok(new PaginatedResult<ProductDto>(items, total, page, pageSize));
     }
 
+    /// <summary>
+    /// Returns up to 6 lightweight product suggestions for the search autocomplete dropdown.
+    /// Matches against product name, brand, and category name.
+    /// Returns an empty array if the query is shorter than 2 characters.
+    /// Accessible by: all users (anonymous).
+    /// </summary>
     [HttpGet("suggestions")]
     public async Task<IActionResult> Suggestions([FromQuery] string q)
     {
@@ -55,6 +71,11 @@ public class ProductsController(ProductDbContext db) : ControllerBase
         return Ok(results);
     }
 
+    /// <summary>
+    /// Returns the full details of a single product by its ID.
+    /// Returns 404 if the product does not exist or is inactive.
+    /// Accessible by: all users (anonymous).
+    /// </summary>
     [HttpGet("{id}")]
     public async Task<IActionResult> GetProduct(Guid id)
     {
@@ -63,6 +84,11 @@ public class ProductsController(ProductDbContext db) : ControllerBase
         return Ok(ToDto(p));
     }
 
+    /// <summary>
+    /// Returns all products with fewer than 10 units in stock.
+    /// Used by the Admin/StoreManager dashboard to identify items that need restocking.
+    /// Accessible by: Admin, StoreManager.
+    /// </summary>
     [HttpGet("low-stock")]
     [Authorize(Roles = "Admin,StoreManager")]
     public async Task<IActionResult> LowStock()
@@ -73,6 +99,12 @@ public class ProductsController(ProductDbContext db) : ControllerBase
         return Ok(items);
     }
 
+    /// <summary>
+    /// Creates a new product in the catalogue.
+    /// Validates that the specified category exists before creating the product.
+    /// Returns 201 Created with the new product's details.
+    /// Accessible by: Admin, StoreManager.
+    /// </summary>
     [HttpPost]
     [Authorize(Roles = "Admin,StoreManager")]
     public async Task<IActionResult> Create(CreateProductRequest req)
@@ -85,6 +117,11 @@ public class ProductsController(ProductDbContext db) : ControllerBase
         return CreatedAtAction(nameof(GetProduct), new { id = product.Id }, ToDto(product, category.Name));
     }
 
+    /// <summary>
+    /// Fully updates an existing product's details.
+    /// Validates that the new category exists. Replaces all editable fields.
+    /// Accessible by: Admin, StoreManager.
+    /// </summary>
     [HttpPut("{id}")]
     [Authorize(Roles = "Admin,StoreManager")]
     public async Task<IActionResult> Update(Guid id, UpdateProductRequest req)
@@ -108,6 +145,12 @@ public class ProductsController(ProductDbContext db) : ControllerBase
         return Ok(ToDto(product, category.Name));
     }
 
+    /// <summary>
+    /// Soft-deletes a product by setting <c>IsActive = false</c>.
+    /// The product is hidden from all public listings but its data is preserved.
+    /// Returns 204 No Content on success.
+    /// Accessible by: Admin only.
+    /// </summary>
     [HttpDelete("{id}")]
     [Authorize(Roles = "Admin")]
     public async Task<IActionResult> Delete(Guid id)
@@ -119,6 +162,11 @@ public class ProductsController(ProductDbContext db) : ControllerBase
         return NoContent();
     }
 
+    /// <summary>
+    /// Updates the stock quantity for a product to the specified absolute value.
+    /// Used by StoreManagers after restocking. Returns 204 No Content on success.
+    /// Accessible by: Admin, StoreManager.
+    /// </summary>
     [HttpPatch("{id}/stock")]
     [Authorize(Roles = "Admin,StoreManager")]
     public async Task<IActionResult> UpdateStock(Guid id, UpdateStockRequest req)
@@ -130,6 +178,12 @@ public class ProductsController(ProductDbContext db) : ControllerBase
         return NoContent();
     }
 
+    /// <summary>
+    /// Sets the discount percentage for a product (0–100).
+    /// A discount of 0 removes any active promotion.
+    /// Returns 400 if the value is outside the valid range.
+    /// Accessible by: Admin, StoreManager.
+    /// </summary>
     [HttpPatch("{id}/discount")]
     [Authorize(Roles = "Admin,StoreManager")]
     public async Task<IActionResult> UpdateDiscount(Guid id, UpdateDiscountRequest req)
@@ -143,6 +197,11 @@ public class ProductsController(ProductDbContext db) : ControllerBase
         return NoContent();
     }
 
+    /// <summary>
+    /// Returns all active products that currently have a discount applied, ordered by highest discount first.
+    /// Used to populate the "Offers" / "On Sale" page in the frontend.
+    /// Accessible by: all users (anonymous).
+    /// </summary>
     [HttpGet("on-sale")]
     public async Task<IActionResult> OnSale()
     {
@@ -154,6 +213,10 @@ public class ProductsController(ProductDbContext db) : ControllerBase
         return Ok(items);
     }
 
+    /// <summary>
+    /// Maps a <see cref="Product"/> entity to a <see cref="ProductDto"/>.
+    /// Computes the discounted price when a discount is active.
+    /// </summary>
     private static ProductDto ToDto(Product p, string? categoryName = null)
     {
         var cat = categoryName ?? p.Category?.Name ?? "";

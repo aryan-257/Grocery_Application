@@ -1,5 +1,24 @@
 services:
 
+  rabbitmq:
+    image: rabbitmq:3-management
+    container_name: freshmart-rabbitmq
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    environment:
+      - RABBITMQ_DEFAULT_USER=freshmart
+      - RABBITMQ_DEFAULT_PASS=FreshMart@2024
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+    restart: unless-stopped
+
   sqlserver:
     image: mcr.microsoft.com/mssql/server:2022-latest
     container_name: freshmart-sqlserver
@@ -57,7 +76,9 @@ services:
     restart: unless-stopped
 
   product-service:
-    build: ./Microservices/ProductService
+    build:
+      context: ./Microservices
+      dockerfile: ProductService/Dockerfile
     container_name: freshmart-products
     ports:
       - "5002:5002"
@@ -67,13 +88,20 @@ services:
       - Jwt__Key=super-secret-jwt-key-change-in-production-min32chars!
       - Jwt__Issuer=GroceryApp
       - Jwt__Audience=GroceryApp
+      - RabbitMQ__Host=rabbitmq
+      - RabbitMQ__Username=freshmart
+      - RabbitMQ__Password=FreshMart@2024
     depends_on:
       sqlserver:
+        condition: service_healthy
+      rabbitmq:
         condition: service_healthy
     restart: unless-stopped
 
   order-service:
-    build: ./Microservices/OrderService
+    build:
+      context: ./Microservices
+      dockerfile: OrderService/Dockerfile
     container_name: freshmart-orders
     ports:
       - "5003:5003"
@@ -87,13 +115,20 @@ services:
       - Services__ProductService=http://product-service:5002
       - Services__PaymentService=http://payment-service:5004
       - Services__AuthService=http://auth-service:5001
+      - RabbitMQ__Host=rabbitmq
+      - RabbitMQ__Username=freshmart
+      - RabbitMQ__Password=FreshMart@2024
     depends_on:
       sqlserver:
+        condition: service_healthy
+      rabbitmq:
         condition: service_healthy
     restart: unless-stopped
 
   payment-service:
-    build: ./Microservices/PaymentService
+    build:
+      context: ./Microservices
+      dockerfile: PaymentService/Dockerfile
     container_name: freshmart-payment
     ports:
       - "5004:5004"
@@ -105,13 +140,20 @@ services:
       - Jwt__Audience=GroceryApp
       - Razorpay__KeyId=rzp_test_SaubjwPUyNxYWL
       - Razorpay__KeySecret=oAcY6tnueDnkjJ7v698RjoiP
+      - RabbitMQ__Host=rabbitmq
+      - RabbitMQ__Username=freshmart
+      - RabbitMQ__Password=FreshMart@2024
     depends_on:
       sqlserver:
+        condition: service_healthy
+      rabbitmq:
         condition: service_healthy
     restart: unless-stopped
 
   notification-service:
-    build: ./Microservices/NotificationService
+    build:
+      context: ./Microservices
+      dockerfile: NotificationService/Dockerfile
     container_name: freshmart-notifications
     ports:
       - "5005:5005"
@@ -128,8 +170,13 @@ services:
       - Email__From=aryandalal081@gmail.com
       - Email__FromName=FreshMart
       - App__Url=http://localhost
+      - RabbitMQ__Host=rabbitmq
+      - RabbitMQ__Username=freshmart
+      - RabbitMQ__Password=FreshMart@2024
     depends_on:
       sqlserver:
+        condition: service_healthy
+      rabbitmq:
         condition: service_healthy
     restart: unless-stopped
 
@@ -160,3 +207,4 @@ services:
 
 volumes:
   sqlserver-data:
+  rabbitmq-data:

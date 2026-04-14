@@ -325,9 +325,11 @@ export class AdminSupport implements OnInit, OnDestroy, AfterViewChecked {
     if (!this.replyText.trim() || !this.selectedTicket()) return;
     this.sending.set(true);
     const id = this.selectedTicket()!.id;
-    this.http.post<SupportMessage>(`${this.api}/support/tickets/${id}/messages`, { message: this.replyText }).subscribe({
-      next: msg => { this.messages.update(m => [...m, msg]); this.replyText = ''; this.sending.set(false); this.shouldScroll = true; },
-      error: () => this.sending.set(false)
+    const text = this.replyText;
+    this.replyText = '';
+    this.http.post<SupportMessage>(`${this.api}/support/tickets/${id}/messages`, { message: text }).subscribe({
+      next: () => { this.sending.set(false); this.shouldScroll = true; },
+      error: () => { this.replyText = text; this.sending.set(false); }
     });
   }
 

@@ -360,7 +360,8 @@ export class Support implements OnInit, OnDestroy, AfterViewChecked {
         this.showNewForm.set(false);
         this.newSubject = ''; this.newDescription = ''; this.newOrderId = '';
         this.loadTickets();
-        this.openTicket(ticket);
+        // Load ticket detail directly without re-triggering the route guard
+        this.loadTicketById(ticket.id);
       },
       error: () => this.submitting.set(false)
     });
@@ -370,14 +371,18 @@ export class Support implements OnInit, OnDestroy, AfterViewChecked {
     if (!this.replyText.trim() || !this.selectedTicket()) return;
     this.sending.set(true);
     const id = this.selectedTicket()!.id;
-    this.http.post<SupportMessage>(`${this.api}/support/tickets/${id}/messages`, { message: this.replyText }).subscribe({
-      next: msg => {
-        this.messages.update(m => [...m, msg]);
-        this.replyText = '';
+    const text = this.replyText;
+    this.replyText = ''; // clear immediately so user can't double-send
+    this.http.post<SupportMessage>(`${this.api}/support/tickets/${id}/messages`, { message: text }).subscribe({
+      next: () => {
+        // Do NOT push msg here — SignalR newMessage event handles it for everyone including sender
         this.sending.set(false);
         this.shouldScroll = true;
       },
-      error: () => this.sending.set(false)
+      error: () => {
+        this.replyText = text; // restore on error
+        this.sending.set(false);
+      }
     });
   }
 

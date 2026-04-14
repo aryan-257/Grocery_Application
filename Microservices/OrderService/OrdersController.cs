@@ -1,21 +1,31 @@
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
+using MassTransit;
 using OrderService.Data;
 using OrderService.DTOs;
 using OrderService.Models;
 using OrderService.Services;
+using SharedModels.Events;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 
 namespace OrderService.Controllers;
 
-using OrderService.Services;
-
+/// <summary>
+/// Manages the full order lifecycle for the FreshMart platform.
+/// Publishes domain events to RabbitMQ via MassTransit for async processing
+/// by NotificationService and ProductService.
+/// Retains synchronous HTTP call to PaymentService for Razorpay order creation.
+/// </summary>
 [ApiController]
 [Route("api/v1/orders")]
 [Authorize]
-public class OrdersController(OrderDbContext db, NotificationService notif, ProductServiceClient productClient, PaymentServiceClient paymentClient) : ControllerBase
+public class OrdersController(
+    OrderDbContext db,
+    PaymentServiceClient paymentClient,
+    IPublishEndpoint? publishEndpoint,
+    ILogger<OrdersController> logger) : ControllerBase
 {
     private Guid UserId => Guid.Parse(
         User.FindFirstValue(JwtRegisteredClaimNames.Sub)
@@ -29,6 +39,11 @@ public class OrdersController(OrderDbContext db, NotificationService notif, Prod
         o.EstimatedDelivery?.ToString("o"), o.DeliveredAt?.ToString("o"),
         o.Items.Select(i => new OrderItemDto(i.ProductId.ToString(), i.ProductName, i.Quantity, i.UnitPrice, i.Quantity * i.UnitPrice)));
 
+    /// <summary>
+    /// Returns orders visible to the authenticated user.
+    /// Customers see only their own orders. Admin/StoreManager see all.
+    /// DeliveryDriver sees only Shipped/OutForDelivery/Delivered orders.
+    /// </summary>
     [HttpGet]
     public async Task<IActionResult> GetOrders()
     {
@@ -41,6 +56,7 @@ public class OrdersController(OrderDbContext db, NotificationService notif, Prod
         return Ok(orders);
     }
 
+    /// <summary>Returns a single order by ID with ownership enforcement for customers.</summary>
     [HttpGet("{id}")]
     public async Task<IActionResult> GetOrder(Guid id)
     {
@@ -51,6 +67,11 @@ public class OrdersController(OrderDbContext db, NotificationService notif, Prod
         return Ok(ToDto(order));
     }
 
+    /// <summary>
+    /// Creates a new order from the customer's cart.
+    /// Calculates totals, validates coupon, snapshots prices and customer info.
+    /// Calls PaymentService synchronously to get Razorpay order ID for frontend checkout.
+    /// </summary>
     [HttpPost]
     public async Task<IActionResult> CreateOrder(CreateOrderRequest req)
     {
@@ -58,7 +79,6 @@ public class OrdersController(OrderDbContext db, NotificationService notif, Prod
             .FirstOrDefaultAsync(c => c.CustomerId == UserId);
         if (cart == null || !cart.Items.Any()) return BadRequest(new { error = "Cart is empty" });
 
-        // Load product prices from local product cache
         var productIds = cart.Items.Select(i => i.ProductId).ToList();
         var products = await db.Set<Product>()
             .Where(p => productIds.Contains(p.Id))
@@ -90,9 +110,24 @@ public class OrdersController(OrderDbContext db, NotificationService notif, Prod
             }
         }
 
+        var customerEmail = User.FindFirstValue(JwtRegisteredClaimNames.Email)
+            ?? User.FindFirstValue(ClaimTypes.Email) ?? "";
+        var customerFirstName = User.FindFirstValue(JwtRegisteredClaimNames.GivenName)
+            ?? User.FindFirstValue(ClaimTypes.GivenName) ?? "Customer";
+        var customerLastName = User.FindFirstValue(JwtRegisteredClaimNames.FamilyName)
+            ?? User.FindFirstValue(ClaimTypes.Surname) ?? "";
+
+        // Upsert local AppUser projection
+        var appUser = await db.Users.FindAsync(UserId);
+        if (appUser == null)
+            db.Users.Add(new AppUser { Id = UserId, Email = customerEmail, FirstName = customerFirstName });
+        else { appUser.Email = customerEmail; appUser.FirstName = customerFirstName; }
+
         var order = new Order
         {
             CustomerId = UserId,
+            CustomerEmail = customerEmail,
+            CustomerFirstName = customerFirstName,
             DeliveryAddress = req.DeliveryAddress,
             Notes = req.Notes,
             SubTotal = subTotal,
@@ -119,23 +154,26 @@ public class OrdersController(OrderDbContext db, NotificationService notif, Prod
         db.CartItems.RemoveRange(cart.Items);
         await db.SaveChangesAsync();
 
-        // Call payment service to create Razorpay order
+        // Synchronous HTTP call to PaymentService — Razorpay order ID needed immediately
         var token = Request.Headers["Authorization"].ToString().Replace("Bearer ", "");
         var paymentResult = await paymentClient.CreatePaymentOrderAsync(order.Id, order.TotalAmount, token);
 
         if (paymentResult != null)
-        {
             return CreatedAtAction(nameof(GetOrder), new { id = order.Id }, new
             {
                 order = ToDto(order),
                 razorpayOrderId = paymentResult.RazorpayOrderId,
                 razorpayKey = paymentResult.RazorpayKeyId
             });
-        }
 
         return CreatedAtAction(nameof(GetOrder), new { id = order.Id }, ToDto(order));
     }
 
+    /// <summary>
+    /// Confirms payment completion: clears cart and publishes OrderPlacedEvent to RabbitMQ.
+    /// NotificationService consumes the event to send in-app notifications and confirmation email.
+    /// ProductService consumes the event to decrement stock.
+    /// </summary>
     [HttpPost("{id}/complete-payment")]
     public async Task<IActionResult> CompletePayment(Guid id)
     {
@@ -147,32 +185,52 @@ public class OrdersController(OrderDbContext db, NotificationService notif, Prod
         var cart = await db.Carts.Include(c => c.Items).FirstOrDefaultAsync(c => c.CustomerId == UserId);
         if (cart != null) { db.CartItems.RemoveRange(cart.Items); await db.SaveChangesAsync(); }
 
-        // Send in-app notifications
-        await notif.SendToUserAsync(UserId,
-            "Payment Successful",
-            $"Payment for order #{order.Id.ToString()[..8].ToUpper()} completed. Total: Rs.{order.TotalAmount:F2}",
-            "success", $"/orders/{order.Id}/track");
-        await notif.SendToRoleAsync("Admin", "New Order Received",
-            $"Order #{order.Id.ToString()[..8].ToUpper()} placed for Rs.{order.TotalAmount:F2}", "order", "/admin/orders");
-        await notif.SendToRoleAsync("StoreManager", "New Order Received",
-            $"Order #{order.Id.ToString()[..8].ToUpper()} placed for Rs.{order.TotalAmount:F2}", "order", "/admin/orders");
+        // Backfill customer info snapshot if missing
+        var userEmail = User.FindFirstValue(JwtRegisteredClaimNames.Email)
+            ?? User.FindFirstValue(ClaimTypes.Email) ?? order.CustomerEmail;
+        var userFirstName = User.FindFirstValue(JwtRegisteredClaimNames.GivenName)
+            ?? User.FindFirstValue(ClaimTypes.GivenName) ?? order.CustomerFirstName;
+        var userLastName = User.FindFirstValue(JwtRegisteredClaimNames.FamilyName)
+            ?? User.FindFirstValue(ClaimTypes.Surname) ?? "";
 
-        // Send confirmation email via notification service
-        // Get user info from JWT claims (avoids cross-service DB dependency)
-        var userEmail = User.FindFirstValue(System.IdentityModel.Tokens.Jwt.JwtRegisteredClaimNames.Email)
-            ?? User.FindFirstValue(ClaimTypes.Email) ?? "";
-        var userFirstName = User.FindFirstValue(System.IdentityModel.Tokens.Jwt.JwtRegisteredClaimNames.GivenName)
-            ?? User.FindFirstValue(ClaimTypes.GivenName) ?? "Customer";
-
-        if (!string.IsNullOrEmpty(userEmail))
+        if (string.IsNullOrEmpty(order.CustomerEmail) && !string.IsNullOrEmpty(userEmail))
         {
-            var items = order.Items.Select(i => new EmailOrderItem(i.ProductName, i.Quantity, i.UnitPrice)).ToList();
-            await notif.SendOrderPlacedEmailAsync(userEmail, userFirstName, order.Id.ToString(), order.TotalAmount, items, order.DeliveryAddress, order.EstimatedDelivery?.ToString("dddd, MMMM dd yyyy"));
+            order.CustomerEmail = userEmail;
+            order.CustomerFirstName = userFirstName;
+            await db.SaveChangesAsync();
+        }
+
+        // Publish OrderPlacedEvent to RabbitMQ — replaces direct HTTP calls to NotificationService and ProductService
+        if (publishEndpoint != null)
+        {
+            try
+            {
+                await publishEndpoint.Publish(new OrderPlacedEvent(
+                    OrderId: order.Id,
+                    CustomerId: order.CustomerId,
+                    CustomerEmail: userEmail,
+                    CustomerName: $"{userFirstName} {userLastName}".Trim(),
+                    TotalAmount: order.TotalAmount,
+                    DeliveryAddress: order.DeliveryAddress,
+                    Items: order.Items.Select(i => new OrderItemEvent(i.ProductId, i.ProductName, i.Quantity, i.UnitPrice)).ToList(),
+                    CreatedAt: order.CreatedAt));
+
+                logger.LogInformation("Published OrderPlacedEvent for Order {OrderId}", order.Id);
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex, "Failed to publish OrderPlacedEvent for Order {OrderId}", order.Id);
+            }
         }
 
         return Ok(new { message = "Payment completed successfully" });
     }
 
+    /// <summary>
+    /// Updates order status and publishes OrderStatusChangedEvent to RabbitMQ.
+    /// NotificationService consumes the event to send in-app notification and status email.
+    /// Works for all roles: Admin, StoreManager, DeliveryDriver.
+    /// </summary>
     [HttpPatch("{id}/status")]
     [Authorize(Roles = "Admin,StoreManager,DeliveryDriver")]
     public async Task<IActionResult> UpdateStatus(Guid id, UpdateOrderStatusRequest req)
@@ -183,36 +241,43 @@ public class OrdersController(OrderDbContext db, NotificationService notif, Prod
         if (req.Status == "Delivered") order.DeliveredAt = DateTime.UtcNow;
         await db.SaveChangesAsync();
 
-        var (title, msg, type) = req.Status switch
+        // Resolve customer email — snapshot first, fallback to local AppUser projection
+        var emailTo = order.CustomerEmail;
+        var nameTo = order.CustomerFirstName;
+        if (string.IsNullOrEmpty(emailTo))
         {
-            "Processing"     => ("Order Processing",  $"Your order #{id.ToString()[..8].ToUpper()} is being prepared.", "info"),
-            "Shipped"        => ("Order Shipped",     $"Your order #{id.ToString()[..8].ToUpper()} has been shipped!", "info"),
-            "OutForDelivery" => ("Out for Delivery",  $"Your order #{id.ToString()[..8].ToUpper()} is out for delivery!", "warning"),
-            "Delivered"      => ("Order Delivered",   $"Your order #{id.ToString()[..8].ToUpper()} has been delivered. Enjoy!", "success"),
-            "Cancelled"      => ("Order Cancelled",   $"Your order #{id.ToString()[..8].ToUpper()} has been cancelled.", "error"),
-            _                => ("Order Updated",     $"Your order #{id.ToString()[..8].ToUpper()} status: {req.Status}", "info")
-        };
-        await notif.SendToUserAsync(order.CustomerId, title, msg, type, $"/orders/{id}/track");
-
-        // Send status email - fetch customer from AuthService
-        try {
-            var authToken = Request.Headers["Authorization"].ToString().Replace("Bearer ", "");
-            using var httpClient = new System.Net.Http.HttpClient();
-            httpClient.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", authToken);
-            var authUrl = System.Environment.GetEnvironmentVariable("Services__AuthService") ?? "http://auth-service:5001";
-            var customerResp = await httpClient.GetAsync($"{authUrl}/api/v1/users/{order.CustomerId}");
-            if (customerResp.IsSuccessStatusCode) {
-                var customerData = await customerResp.Content.ReadFromJsonAsync<System.Text.Json.JsonElement>();
-                var custEmail = customerData.GetProperty("email").GetString() ?? "";
-                var custName = customerData.GetProperty("firstName").GetString() ?? "Customer";
-                if (!string.IsNullOrEmpty(custEmail) && new[] { "Processing","Shipped","OutForDelivery","Delivered","Cancelled" }.Contains(req.Status))
-                    await notif.SendOrderStatusEmailAsync(custEmail, custName, id.ToString(), req.Status, order.TotalAmount);
+            var appUser = await db.Users.FindAsync(order.CustomerId);
+            emailTo = appUser?.Email ?? "";
+            nameTo = appUser?.FirstName ?? "Customer";
+            if (!string.IsNullOrEmpty(emailTo))
+            {
+                order.CustomerEmail = emailTo;
+                order.CustomerFirstName = nameTo;
+                await db.SaveChangesAsync();
             }
-        } catch { /* email is non-critical */ }
+        }
 
-        if (req.Status == "Shipped" || req.Status == "Processing")
-            await notif.SendToRoleAsync("DeliveryDriver", "New Delivery Available",
-                $"Order #{id.ToString()[..8].ToUpper()} is ready for pickup.", "order", "/delivery");
+        // Publish OrderStatusChangedEvent to RabbitMQ — replaces direct HTTP calls to NotificationService
+        if (publishEndpoint != null)
+        {
+            try
+            {
+                await publishEndpoint.Publish(new OrderStatusChangedEvent(
+                    OrderId: order.Id,
+                    CustomerId: order.CustomerId,
+                    CustomerEmail: emailTo,
+                    CustomerName: nameTo,
+                    NewStatus: req.Status,
+                    TotalAmount: order.TotalAmount,
+                    ChangedAt: DateTime.UtcNow));
+
+                logger.LogInformation("Published OrderStatusChangedEvent for Order {OrderId} → {Status}", id, req.Status);
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex, "Failed to publish OrderStatusChangedEvent for Order {OrderId}", id);
+            }
+        }
 
         return NoContent();
     }

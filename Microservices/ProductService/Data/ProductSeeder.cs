@@ -3,8 +3,18 @@ using ProductService.Models;
 
 namespace ProductService.Data;
 
+/// <summary>
+/// Seeds the ProductService database with a default set of categories and products on startup.
+/// Only runs if the Products table is empty, making it safe to call on every startup.
+/// Provides a realistic catalogue of Indian grocery products across 8 categories.
+/// </summary>
 public static class ProductSeeder
 {
+    /// <summary>
+    /// Ensures the database schema exists and seeds categories and products if none exist.
+    /// Creates 8 top-level categories and ~45 products with realistic pricing, images, and metadata.
+    /// </summary>
+    /// <param name="db">The ProductDbContext instance to seed.</param>
     public static async Task SeedAsync(ProductDbContext db)
     {
         await db.Database.EnsureCreatedAsync();

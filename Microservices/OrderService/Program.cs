@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
 using OrderService.Data;
+using OrderService.Messaging;
 using OrderService.Services;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -48,6 +49,8 @@ builder.Services.AddHttpClient<OrderService.Services.PaymentServiceClient>(clien
 });
 
 builder.Services.AddEndpointsApiExplorer();
+// Register MassTransit with RabbitMQ (publisher + PaymentCompletedEvent consumer)
+builder.Services.AddOrderServiceMessaging(builder.Configuration);
 builder.Services.AddSwaggerGen(c =>
 {
     c.SwaggerDoc("v1", new OpenApiInfo { Title = "FreshMart Order Service", Version = "v1" });
@@ -69,12 +72,26 @@ using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<OrderDbContext>();
     db.Database.EnsureCreated();
+
+    // Add new columns if they don't exist (safe migration for existing databases)
+    try
+    {
+        db.Database.ExecuteSqlRaw(@"
+            IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('Orders') AND name = 'CustomerEmail')
+                ALTER TABLE Orders ADD CustomerEmail nvarchar(max) NOT NULL DEFAULT '';
+            IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('Orders') AND name = 'CustomerFirstName')
+                ALTER TABLE Orders ADD CustomerFirstName nvarchar(max) NOT NULL DEFAULT '';
+        ");
+    }
+    catch { /* columns may already exist */ }
+
     await OrderService.Data.OrderSeeder.SeedAsync(db);
 }
 
 app.UseSwagger();
 app.UseSwaggerUI(c => c.SwaggerEndpoint("/swagger/v1/swagger.json", "Order Service v1"));
 
+app.UseMiddleware<CorrelationIdMiddleware>();
 app.UseCors();
 app.UseAuthentication();
 app.UseAuthorization();

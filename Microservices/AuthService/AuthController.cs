@@ -11,14 +11,27 @@ using Microsoft.EntityFrameworkCore;
 
 namespace AuthService.Controllers;
 
+/// <summary>
+/// Handles all authentication flows for the FreshMart platform:
+/// email/password login, registration, token refresh, logout, profile management,
+/// password change, and Google OAuth2 sign-in.
+/// Accessible by all users (most endpoints are anonymous; profile endpoints require a valid JWT).
+/// </summary>
 [ApiController]
 [Route("api/v1/auth")]
 public class AuthController(AuthDbContext db, JwtService jwt) : ControllerBase
 {
+    /// <summary>Extracts the authenticated user's ID from the JWT <c>sub</c> claim.</summary>
     private Guid CurrentUserId => Guid.Parse(
         User.FindFirstValue(JwtRegisteredClaimNames.Sub)
         ?? User.FindFirstValue(ClaimTypes.NameIdentifier)
         ?? throw new InvalidOperationException("User ID claim not found"));
+
+    /// <summary>
+    /// Registers a new customer account.
+    /// Validates email uniqueness, hashes the password, and persists the user.
+    /// Returns the new user's ID, email, and default role (<c>Customer</c>).
+    /// </summary>
     [HttpPost("register")]
     public async Task<IActionResult> Register(RegisterRequest req)
     {
@@ -38,6 +51,11 @@ public class AuthController(AuthDbContext db, JwtService jwt) : ControllerBase
         return Ok(new { userId = user.Id, email = user.Email, role = user.Role });
     }
 
+    /// <summary>
+    /// Authenticates a user with email and password.
+    /// On success, issues a JWT access token (1 hour) and a refresh token (7 days).
+    /// Returns 401 if credentials are invalid or the account does not exist.
+    /// </summary>
     [HttpPost("login")]
     public async Task<IActionResult> Login(LoginRequest req)
     {
@@ -54,6 +72,11 @@ public class AuthController(AuthDbContext db, JwtService jwt) : ControllerBase
         return Ok(new AuthResponse(accessToken, refreshToken, DateTime.UtcNow.AddHours(1).ToString("o"), user.Role, user.Id.ToString()));
     }
 
+    /// <summary>
+    /// Issues a new access token and rotates the refresh token.
+    /// Validates that the provided refresh token exists in the database and has not expired.
+    /// Returns 401 if the token is invalid or expired.
+    /// </summary>
     [HttpPost("refresh")]
     public async Task<IActionResult> Refresh(RefreshRequest req)
     {
@@ -69,6 +92,11 @@ public class AuthController(AuthDbContext db, JwtService jwt) : ControllerBase
         return Ok(new AuthResponse(accessToken, refreshToken, DateTime.UtcNow.AddHours(1).ToString("o"), user.Role, user.Id.ToString()));
     }
 
+    /// <summary>
+    /// Logs out the authenticated user by invalidating their refresh token.
+    /// After logout, the refresh token cannot be used to obtain new access tokens.
+    /// Requires a valid JWT. Returns 204 No Content on success.
+    /// </summary>
     [HttpPost("logout")]
     [Authorize]
     public async Task<IActionResult> Logout()
@@ -78,6 +106,10 @@ public class AuthController(AuthDbContext db, JwtService jwt) : ControllerBase
         return NoContent();
     }
 
+    /// <summary>
+    /// Returns the authenticated user's profile information.
+    /// Requires a valid JWT. Used by the frontend to populate the profile page and navbar.
+    /// </summary>
     [HttpGet("me")]
     [Authorize]
     public async Task<IActionResult> Me()
@@ -87,6 +119,12 @@ public class AuthController(AuthDbContext db, JwtService jwt) : ControllerBase
         return Ok(new UserDto(user.Id.ToString(), user.Email, user.FirstName, user.LastName, user.Role, user.PhoneNumber));
     }
 
+    /// <summary>
+    /// Updates the authenticated user's profile (name and phone number).
+    /// Re-issues a new access token so updated name claims are reflected immediately
+    /// without requiring a full logout/login cycle.
+    /// Requires a valid JWT.
+    /// </summary>
     [HttpPut("me")]
     [Authorize]
     public async Task<IActionResult> UpdateProfile(UpdateProfileRequest req)
@@ -102,6 +140,12 @@ public class AuthController(AuthDbContext db, JwtService jwt) : ControllerBase
         return Ok(new { user = new UserDto(user.Id.ToString(), user.Email, user.FirstName, user.LastName, user.Role, user.PhoneNumber), accessToken });
     }
 
+    /// <summary>
+    /// Changes the authenticated user's password.
+    /// Verifies the current password before applying the change.
+    /// Returns 400 if the current password is incorrect.
+    /// Requires a valid JWT.
+    /// </summary>
     [HttpPost("change-password")]
     [Authorize]
     public async Task<IActionResult> ChangePassword(ChangePasswordRequest req)
@@ -115,6 +159,13 @@ public class AuthController(AuthDbContext db, JwtService jwt) : ControllerBase
         return NoContent();
     }
 
+    /// <summary>
+    /// Authenticates or registers a user via Google OAuth2.
+    /// Verifies the provided Google token against Google's userinfo endpoint.
+    /// If the Google account is already linked or the email matches an existing user,
+    /// the existing account is used. Otherwise, a new Customer account is auto-created.
+    /// Returns the same <see cref="AuthResponse"/> as a standard login.
+    /// </summary>
     [HttpPost("google")]
     public async Task<IActionResult> GoogleAuth(GoogleAuthRequest req)
     {
@@ -162,7 +213,10 @@ public class AuthController(AuthDbContext db, JwtService jwt) : ControllerBase
     }
 }
 
-// Google tokeninfo response shape
+/// <summary>
+/// Internal model representing the relevant fields from Google's OAuth2 userinfo endpoint response.
+/// Used only within this file to deserialize the Google API response.
+/// </summary>
 file sealed class GoogleTokenPayload
 {
     [System.Text.Json.Serialization.JsonPropertyName("sub")]

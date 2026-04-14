@@ -66,6 +66,7 @@ public class VerifyPaymentResponse
 public class PaymentStatusResponse
 {
     public Guid PaymentId { get; set; }
+    public Guid OrderId { get; set; }
     public string Status { get; set; } = string.Empty;
     public decimal Amount { get; set; }
     public string Currency { get; set; } = string.Empty;

@@ -6,10 +6,20 @@ using Microsoft.EntityFrameworkCore;
 
 namespace OrderService.Controllers;
 
+/// <summary>
+/// Provides coupon discovery and validation for the checkout flow.
+/// The listing endpoint is public so the frontend can display available promotions.
+/// Validation requires authentication to prevent anonymous abuse.
+/// </summary>
 [ApiController]
 [Route("api/v1/coupons")]
 public class CouponsController(OrderDbContext db) : ControllerBase
 {
+    /// <summary>
+    /// Returns all currently active, non-expired coupons.
+    /// Used by the frontend to display available promotions on the checkout and offers pages.
+    /// Accessible by: all users (anonymous).
+    /// </summary>
     [HttpGet]
     public async Task<IActionResult> GetAll()
     {
@@ -21,6 +31,13 @@ public class CouponsController(OrderDbContext db) : ControllerBase
         return Ok(coupons);
     }
 
+    /// <summary>
+    /// Validates a coupon code against a given order amount and returns the calculated discount.
+    /// Checks that the coupon is active, not expired, within its usage limit, and meets the minimum order amount.
+    /// Returns a success response with the discount amount, or a failure response with a descriptive message.
+    /// Does NOT apply the coupon — application happens during order creation.
+    /// Accessible by: authenticated users.
+    /// </summary>
     [HttpPost("validate")]
     [Authorize]
     public async Task<IActionResult> Validate(CouponValidateRequest req)

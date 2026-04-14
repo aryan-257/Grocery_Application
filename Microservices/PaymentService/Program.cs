@@ -1,4 +1,5 @@
 using System.Text;
+using MassTransit;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
@@ -34,6 +35,28 @@ builder.Services.AddCors(opt =>
 builder.Services.AddHttpClient<IPaymentService, PaymentService.Services.PaymentService>();
 builder.Services.AddScoped<IPaymentService, PaymentService.Services.PaymentService>();
 
+// Register MassTransit with RabbitMQ for publishing PaymentCompletedEvent
+var rabbitHost = builder.Configuration["RabbitMQ:Host"];
+if (!string.IsNullOrEmpty(rabbitHost))
+{
+    builder.Services.AddMassTransit(x =>
+    {
+        x.UsingRabbitMq((ctx, cfg) =>
+        {
+            cfg.Host(rabbitHost, "/", h =>
+            {
+                h.Username(builder.Configuration["RabbitMQ:Username"] ?? "guest");
+                h.Password(builder.Configuration["RabbitMQ:Password"] ?? "guest");
+            });
+            cfg.UseMessageRetry(r => r.Intervals(
+                TimeSpan.FromSeconds(1),
+                TimeSpan.FromSeconds(5),
+                TimeSpan.FromSeconds(15)));
+            cfg.ConfigureEndpoints(ctx);
+        });
+    });
+}
+
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(c =>
 {
@@ -61,6 +84,7 @@ using (var scope = app.Services.CreateScope())
 app.UseSwagger();
 app.UseSwaggerUI(c => c.SwaggerEndpoint("/swagger/v1/swagger.json", "Payment Service v1"));
 
+app.UseMiddleware<CorrelationIdMiddleware>();
 app.UseCors();
 app.UseAuthentication();
 app.UseAuthorization();

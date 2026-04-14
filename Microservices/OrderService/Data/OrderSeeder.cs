@@ -3,8 +3,18 @@ using OrderService.Models;
 
 namespace OrderService.Data;
 
+/// <summary>
+/// Seeds the OrderService database with a default set of discount coupons on startup.
+/// Only runs if the Coupons table is empty, making it safe to call on every startup.
+/// Provides a variety of coupon types (percentage and fixed) with different minimum order amounts.
+/// </summary>
 public static class OrderSeeder
 {
+    /// <summary>
+    /// Inserts the default coupon set if no coupons exist in the database.
+    /// Creates 5 coupons covering different discount strategies and expiry windows.
+    /// </summary>
+    /// <param name="db">The OrderDbContext instance to seed.</param>
     public static async Task SeedAsync(OrderDbContext db)
     {
         if (await db.Coupons.AnyAsync()) return;

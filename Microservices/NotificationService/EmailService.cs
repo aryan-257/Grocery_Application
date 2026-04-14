@@ -4,9 +4,22 @@ using MimeKit;
 
 namespace NotificationService.Services;
 
-// Local record — avoids cross-service model dependency
+/// <summary>
+/// Represents a single product line item used in order email templates.
+/// </summary>
+/// <param name="ProductName">Display name of the product.</param>
+/// <param name="Quantity">Number of units ordered.</param>
+/// <param name="UnitPrice">Price per unit at the time of ordering.</param>
 public record OrderItemInfo(string ProductName, int Quantity, decimal UnitPrice);
 
+/// <summary>
+/// Represents the order data passed to email template builders.
+/// </summary>
+/// <param name="Id">The FreshMart order ID.</param>
+/// <param name="TotalAmount">Total amount charged in INR.</param>
+/// <param name="Items">Line items to display in the email items table.</param>
+/// <param name="EstimatedDelivery">Optional estimated delivery date.</param>
+/// <param name="DeliveredAt">Optional actual delivery timestamp (used in the delivered email).</param>
 public record OrderInfo(
     Guid Id,
     decimal TotalAmount,
@@ -14,6 +27,13 @@ public record OrderInfo(
     DateTime? EstimatedDelivery = null,
     DateTime? DeliveredAt = null);
 
+/// <summary>
+/// Sends transactional HTML emails for order lifecycle events using MailKit and SMTP.
+/// Email configuration (host, port, credentials, sender) is read from <c>appsettings.json</c>.
+/// If the SMTP host is not configured, email sending is skipped with a warning log.
+/// All send failures are caught and logged as errors without propagating exceptions,
+/// so email issues never block the primary order flow.
+/// </summary>
 public class EmailService(IConfiguration config, ILogger<EmailService> logger)
 {
     private readonly string _host     = config["Email:Host"] ?? "";
@@ -26,26 +46,37 @@ public class EmailService(IConfiguration config, ILogger<EmailService> logger)
 
     // ── public send methods ──────────────────────────────────────────────────
 
+    /// <summary>Sends an order confirmation email after successful payment.</summary>
     public Task SendOrderPlacedAsync(string email, string firstName, OrderInfo order) =>
         SendAsync(email, $"Order Confirmed — #{ShortId(order.Id)}", BuildOrderPlaced(firstName, order));
 
+    /// <summary>Sends an email notifying the customer that their order is being prepared.</summary>
     public Task SendOrderProcessingAsync(string email, string firstName, OrderInfo order) =>
         SendAsync(email, $"We're Preparing Your Order #{ShortId(order.Id)}", BuildOrderProcessing(firstName, order));
 
+    /// <summary>Sends an email notifying the customer that their order has been shipped.</summary>
     public Task SendOrderShippedAsync(string email, string firstName, OrderInfo order) =>
         SendAsync(email, $"Your Order #{ShortId(order.Id)} Has Been Shipped!", BuildOrderShipped(firstName, order));
 
+    /// <summary>Sends an email notifying the customer that their order is out for delivery today.</summary>
     public Task SendOutForDeliveryAsync(string email, string firstName, OrderInfo order) =>
         SendAsync(email, $"Your Order #{ShortId(order.Id)} Is Out for Delivery", BuildOutForDelivery(firstName, order));
 
+    /// <summary>Sends an email confirming that the order has been successfully delivered.</summary>
     public Task SendOrderDeliveredAsync(string email, string firstName, OrderInfo order) =>
         SendAsync(email, $"Your Order #{ShortId(order.Id)} Has Been Delivered!", BuildOrderDelivered(firstName, order));
 
+    /// <summary>Sends an email notifying the customer that their order has been cancelled.</summary>
     public Task SendOrderCancelledAsync(string email, string firstName, OrderInfo order) =>
         SendAsync(email, $"Your Order #{ShortId(order.Id)} Has Been Cancelled", BuildOrderCancelled(firstName, order));
 
     // ── core send ────────────────────────────────────────────────────────────
 
+    /// <summary>
+    /// Connects to the configured SMTP server and sends an HTML email.
+    /// Skips sending if the SMTP host is not configured.
+    /// Catches and logs all exceptions without rethrowing.
+    /// </summary>
     private async Task SendAsync(string toEmail, string subject, string htmlBody)
     {
         if (string.IsNullOrEmpty(_host))
@@ -78,11 +109,14 @@ public class EmailService(IConfiguration config, ILogger<EmailService> logger)
 
     // ── shared helpers ───────────────────────────────────────────────────────
 
+    /// <summary>Returns the first 8 characters of an order ID in uppercase for use in email subjects.</summary>
     private static string ShortId(Guid id) => id.ToString()[..8].ToUpper();
 
+    /// <summary>Generates an HTML "Track Order" button linking to the order tracking page.</summary>
     private string TrackButton(Guid orderId) =>
         $"""<a href="{_appUrl}/orders/{orderId}/track" style="display:inline-block;background:#22c55e;color:#fff;text-decoration:none;padding:12px 28px;border-radius:6px;font-weight:bold;font-size:15px;margin:18px 0;">Track Order</a>""";
 
+    /// <summary>Generates an HTML table of order line items with product name, quantity, and price columns.</summary>
     private static string ItemsTable(OrderInfo order)
     {
         var rows = string.Join("", order.Items.Select(i =>
@@ -111,6 +145,7 @@ public class EmailService(IConfiguration config, ILogger<EmailService> logger)
 
     // ── base layout ──────────────────────────────────────────────────────────
 
+    /// <summary>Wraps email body content in the shared FreshMart HTML email layout with header and footer.</summary>
     private static string Layout(string body) => $"""
         <!DOCTYPE html>
         <html lang="en">

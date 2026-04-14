@@ -1,8 +1,10 @@
 using System.Text;
+using MassTransit;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
+using ProductService.Consumers;
 using ProductService.Data;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -31,6 +33,30 @@ builder.Services.AddCors(opt =>
     opt.AddDefaultPolicy(p => p.AllowAnyOrigin().AllowAnyHeader().AllowAnyMethod()));
 
 builder.Services.AddEndpointsApiExplorer();
+
+// Register MassTransit with RabbitMQ consumer for stock decrement on order placed
+var rabbitHost = builder.Configuration["RabbitMQ:Host"];
+if (!string.IsNullOrEmpty(rabbitHost))
+{
+    builder.Services.AddMassTransit(x =>
+    {
+        x.AddConsumer<OrderPlacedConsumer>();
+
+        x.UsingRabbitMq((ctx, cfg) =>
+        {
+            cfg.Host(rabbitHost, "/", h =>
+            {
+                h.Username(builder.Configuration["RabbitMQ:Username"] ?? "guest");
+                h.Password(builder.Configuration["RabbitMQ:Password"] ?? "guest");
+            });
+            cfg.UseMessageRetry(r => r.Intervals(
+                TimeSpan.FromSeconds(1),
+                TimeSpan.FromSeconds(5),
+                TimeSpan.FromSeconds(15)));
+            cfg.ConfigureEndpoints(ctx);
+        });
+    });
+}
 builder.Services.AddSwaggerGen(c =>
 {
     c.SwaggerDoc("v1", new OpenApiInfo { Title = "FreshMart Product Service", Version = "v1" });
@@ -57,6 +83,7 @@ using (var scope = app.Services.CreateScope())
 app.UseSwagger();
 app.UseSwaggerUI(c => c.SwaggerEndpoint("/swagger/v1/swagger.json", "Product Service v1"));
 
+app.UseMiddleware<CorrelationIdMiddleware>();
 app.UseCors();
 app.UseAuthentication();
 app.UseAuthorization();

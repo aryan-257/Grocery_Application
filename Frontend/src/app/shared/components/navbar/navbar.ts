@@ -527,6 +527,9 @@ export class Navbar implements OnInit {
         // Register service globally for auth service to access
         (window as any).__notifService = this.notif;
         this.notif.init(token);
+      } else {
+        // Not authenticated — ensure notification state is clean
+        this.notif.disconnect();
       }
     }
   }

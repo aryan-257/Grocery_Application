@@ -11,6 +11,10 @@ builder.Services.AddReverseProxy()
     {
         ctx.UseDefaultForwarders = true;
         ctx.RequestTransforms.Add(new HttpVersionTransform());
+        // Forward Correlation ID to all downstream services
+        ctx.AddRequestHeader("X-Correlation-ID",
+            "{HttpContext.Request.Headers[X-Correlation-ID]}",
+            append: false);
     });
 
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
@@ -45,6 +49,7 @@ builder.Services.AddCors(opt =>
          .AllowAnyHeader().AllowAnyMethod().AllowCredentials()));
 
 var app = builder.Build();
+app.UseMiddleware<ApiGateway.Middleware.CorrelationIdMiddleware>();
 app.UseCors();
 app.UseAuthentication();
 app.MapReverseProxy();
