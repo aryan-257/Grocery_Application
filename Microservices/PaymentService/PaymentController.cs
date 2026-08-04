@@ -61,6 +61,9 @@ public class PaymentController(
     /// Verifies a Razorpay payment after the customer completes checkout on the frontend.
     /// Validates the HMAC-SHA256 signature to confirm the payment is authentic.
     /// Marks the payment as <c>Paid</c> on success or <c>Failed</c> on invalid signature.
+    /// Also publishes <see cref="PaymentCompletedEvent"/> so OrderService can transition
+    /// the order to Processing and trigger notifications — this covers test mode where
+    /// Razorpay webhooks are not delivered.
     /// Returns 400 if verification fails.
     /// Accessible by: authenticated users.
     /// </summary>
@@ -74,6 +77,31 @@ public class PaymentController(
             if (response.IsValid)
             {
                 logger.LogInformation("Payment verified successfully for order {OrderId}", request.RazorpayOrderId);
+
+                // Publish PaymentCompletedEvent — OrderService transitions order to Processing
+                // and publishes OrderPlacedEvent for notifications/email.
+                // This fires on every successful verify call, covering test mode (no webhooks).
+                if (publishEndpoint != null)
+                {
+                    try
+                    {
+                        var status = await paymentService.GetPaymentStatusByOrderIdAsync(request.RazorpayOrderId);
+                        if (status != null)
+                        {
+                            await publishEndpoint.Publish(new PaymentCompletedEvent(
+                                OrderId: status.OrderId,
+                                CustomerId: Guid.Empty,
+                                CustomerEmail: "",
+                                Amount: status.Amount));
+                            logger.LogInformation("Published PaymentCompletedEvent for Order {OrderId} via verify", status.OrderId);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        logger.LogWarning(ex, "Failed to publish PaymentCompletedEvent from verify for {RazorpayOrderId}", request.RazorpayOrderId);
+                    }
+                }
+
                 return Ok(response);
             }
             else

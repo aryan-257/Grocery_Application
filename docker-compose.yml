@@ -166,7 +166,7 @@ services:
       - Email__Host=smtp.gmail.com
       - Email__Port=587
       - Email__Username=aryandalal081@gmail.com
-      - Email__Password=qgmvvfnqrczphsyo
+      - Email__Password=vrduvbluhlaevqnw
       - Email__From=aryandalal081@gmail.com
       - Email__FromName=FreshMart
       - App__Url=http://localhost
