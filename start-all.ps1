@@ -33,8 +33,8 @@ foreach ($svc in $services) {
 Write-Host ""
 Write-Host "  All services started in separate windows." -ForegroundColor Cyan
 Write-Host ""
-Write-Host "  Waiting 30s for services to come up..." -ForegroundColor Yellow
-Start-Sleep -Seconds 30
+Write-Host "  Waiting 80s for services to come up..." -ForegroundColor Yellow
+Start-Sleep -Seconds 80
 
 # Health check
 Write-Host ""

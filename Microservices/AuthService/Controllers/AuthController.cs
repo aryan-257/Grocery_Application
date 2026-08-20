@@ -45,17 +45,23 @@ public class AuthController(AuthDbContext db, IJwtService jwt) : ControllerBase
     [HttpPost("login")]
     public async Task<IActionResult> Login(LoginRequest req)
     {
-        var user = await db.Users.FirstOrDefaultAsync(u => u.Email == req.Email.ToLower());
+        var user = await db.Users
+            .AsNoTracking()
+            .FirstOrDefaultAsync(u => u.Email == req.Email.ToLower());
 
         if (user == null || !BCrypt.Net.BCrypt.Verify(req.Password, user.PasswordHash))
             return Unauthorized(new { error = "Invalid email or password" });
 
         var accessToken  = jwt.GenerateAccessToken(user);
         var refreshToken = jwt.GenerateRefreshToken();
+        var expiry       = DateTime.UtcNow.AddDays(7);
 
-        user.RefreshToken       = refreshToken;
-        user.RefreshTokenExpiry = DateTime.UtcNow.AddDays(7);
-        await db.SaveChangesAsync();
+        // use ExecuteUpdateAsync to avoid EF tracking issues
+        await db.Users
+            .Where(u => u.Id == user.Id)
+            .ExecuteUpdateAsync(s => s
+                .SetProperty(u => u.RefreshToken, refreshToken)
+                .SetProperty(u => u.RefreshTokenExpiry, expiry));
 
         return Ok(new AuthResponse(
             accessToken, refreshToken,
