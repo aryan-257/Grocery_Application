@@ -3,14 +3,17 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
-using OrderService.Data;
-using OrderService.Messaging;
-using OrderService.Services;
+using OrderService.Infrastructure.Data;
+using OrderService.Infrastructure.Services;
+using OrderService.Middleware;
 
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddDbContext<OrderDbContext>(opt =>
-    opt.UseSqlServer(builder.Configuration.GetConnectionString("Default") ?? "Server=localhost,1433;Database=FreshMart_Order;User Id=sa;Password=FreshMart@2024;TrustServerCertificate=True;"));
+    opt.UseSqlite(builder.Configuration.GetConnectionString("Default") ?? "Data Source=orders.db"));
+
+builder.Services.AddHttpClient<ProductServiceClient>(c =>
+    c.BaseAddress = new Uri(builder.Configuration["Services:ProductService"] ?? "http://localhost:5002"));
 
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(opt =>
@@ -18,11 +21,13 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
         opt.MapInboundClaims = false;
         opt.TokenValidationParameters = new TokenValidationParameters
         {
-            ValidateIssuer = true, ValidateAudience = true,
-            ValidateLifetime = true, ValidateIssuerSigningKey = true,
-            ValidIssuer = builder.Configuration["Jwt:Issuer"],
-            ValidAudience = builder.Configuration["Jwt:Audience"],
-            IssuerSigningKey = new SymmetricSecurityKey(
+            ValidateIssuer           = true,
+            ValidateAudience         = true,
+            ValidateLifetime         = true,
+            ValidateIssuerSigningKey = true,
+            ValidIssuer              = builder.Configuration["Jwt:Issuer"],
+            ValidAudience            = builder.Configuration["Jwt:Audience"],
+            IssuerSigningKey         = new SymmetricSecurityKey(
                 Encoding.UTF8.GetBytes(builder.Configuration["Jwt:Key"]!))
         };
     });
@@ -32,33 +37,14 @@ builder.Services.AddControllers();
 builder.Services.AddCors(opt =>
     opt.AddDefaultPolicy(p => p.AllowAnyOrigin().AllowAnyHeader().AllowAnyMethod()));
 
-builder.Services.AddHttpClient<NotificationService>(client =>
-{
-    var url = builder.Configuration["Services:NotificationService"] ?? "http://localhost:5005";
-    client.BaseAddress = new Uri(url);
-});
-builder.Services.AddHttpClient<OrderService.Services.ProductServiceClient>(client =>
-{
-    var url = builder.Configuration["Services:ProductService"] ?? "http://product-service:5002";
-    client.BaseAddress = new Uri(url);
-});
-builder.Services.AddHttpClient<OrderService.Services.PaymentServiceClient>(client =>
-{
-    var url = builder.Configuration["Services:PaymentService"] ?? "http://payment-service:5004";
-    client.BaseAddress = new Uri(url);
-});
-
 builder.Services.AddEndpointsApiExplorer();
-// Register MassTransit with RabbitMQ (publisher + PaymentCompletedEvent consumer)
-builder.Services.AddOrderServiceMessaging(builder.Configuration);
 builder.Services.AddSwaggerGen(c =>
 {
     c.SwaggerDoc("v1", new OpenApiInfo { Title = "FreshMart Order Service", Version = "v1" });
     c.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
     {
         Name = "Authorization", Type = SecuritySchemeType.Http,
-        Scheme = "Bearer", BearerFormat = "JWT", In = ParameterLocation.Header,
-        Description = "Enter your JWT token"
+        Scheme = "Bearer", BearerFormat = "JWT", In = ParameterLocation.Header
     });
     c.AddSecurityRequirement(new OpenApiSecurityRequirement
     {
@@ -69,31 +55,15 @@ builder.Services.AddSwaggerGen(c =>
 var app = builder.Build();
 
 using (var scope = app.Services.CreateScope())
-{
-    var db = scope.ServiceProvider.GetRequiredService<OrderDbContext>();
-    db.Database.EnsureCreated();
-
-    // Add new columns if they don't exist (safe migration for existing databases)
-    try
-    {
-        db.Database.ExecuteSqlRaw(@"
-            IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('Orders') AND name = 'CustomerEmail')
-                ALTER TABLE Orders ADD CustomerEmail nvarchar(max) NOT NULL DEFAULT '';
-            IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('Orders') AND name = 'CustomerFirstName')
-                ALTER TABLE Orders ADD CustomerFirstName nvarchar(max) NOT NULL DEFAULT '';
-        ");
-    }
-    catch { /* columns may already exist */ }
-
-    await OrderService.Data.OrderSeeder.SeedAsync(db);
-}
+    await scope.ServiceProvider.GetRequiredService<OrderDbContext>().Database.EnsureCreatedAsync();
 
 app.UseSwagger();
 app.UseSwaggerUI(c => c.SwaggerEndpoint("/swagger/v1/swagger.json", "Order Service v1"));
-
 app.UseMiddleware<CorrelationIdMiddleware>();
 app.UseCors();
 app.UseAuthentication();
 app.UseAuthorization();
 app.MapControllers();
+app.MapGet("/health", () => Results.Ok(new { status = "healthy", service = "OrderService" }));
+
 await app.RunAsync();

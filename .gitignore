@@ -1,17 +1,18 @@
-# .NET - Microservices
+# .NET build output
 **/bin/
 **/obj/
+
+# User-specific VS/Rider files
 **/*.user
+**/*.suo
+.vs/
+
+# SQLite databases (auto-created on first run, no need to commit)
 **/*.db
 **/*.db-shm
 **/*.db-wal
 
-# Angular / Node
-Frontend/node_modules/
-Frontend/dist/
-Frontend/.angular/
-
-# Environment / secrets
+# Local environment overrides
 **/appsettings.Development.json
 
 # OS
