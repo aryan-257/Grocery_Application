@@ -74,7 +74,9 @@ public class AuthController(AuthDbContext db, IJwtService jwt) : ControllerBase
     [Authorize]
     public async Task<IActionResult> Me()
     {
-        var user = await db.Users.FindAsync(CurrentUserId);
+        var userIdStr = CurrentUserId.ToString().ToLower();
+        var user = await db.Users
+            .FirstOrDefaultAsync(u => u.Id.ToString().ToLower() == userIdStr);
         if (user == null) return NotFound();
 
         return Ok(new UserDto(

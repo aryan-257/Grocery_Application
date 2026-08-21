@@ -46,9 +46,10 @@ public class ProductsController(ProductDbContext db) : ControllerBase
     [HttpGet("{id}")]
     public async Task<IActionResult> GetProduct(Guid id)
     {
+        var idStr = id.ToString().ToLower();
         var product = await db.Products
             .Include(p => p.Category)
-            .FirstOrDefaultAsync(p => p.Id == id);
+            .FirstOrDefaultAsync(p => p.Id.ToString().ToLower() == idStr);
 
         if (product == null) return NotFound();
         return Ok(MapToDto(product));
@@ -58,7 +59,9 @@ public class ProductsController(ProductDbContext db) : ControllerBase
     [Authorize(Roles = "Admin,StoreManager")]
     public async Task<IActionResult> CreateProduct(CreateProductRequest req)
     {
-        var category = await db.Categories.FindAsync(req.CategoryId);
+        var catIdStr = req.CategoryId.ToString().ToLower();
+        var category = await db.Categories
+            .FirstOrDefaultAsync(c => c.Id.ToString().ToLower() == catIdStr);
         if (category == null)
             return BadRequest(new { error = "Category not found" });
 
@@ -69,7 +72,7 @@ public class ProductsController(ProductDbContext db) : ControllerBase
             Price = req.Price,
             Sku = req.Sku,
             ImageUrl = req.ImageUrl,
-            CategoryId = req.CategoryId,
+            CategoryId = category.Id,
             StockQuantity = req.StockQuantity,
             Brand = req.Brand,
             Unit = req.Unit
@@ -78,8 +81,7 @@ public class ProductsController(ProductDbContext db) : ControllerBase
         db.Products.Add(product);
         await db.SaveChangesAsync();
 
-        // need to reload category so it shows in the response
-        await db.Entry(product).Reference(p => p.Category).LoadAsync();
+        product.Category = category;
         return CreatedAtAction(nameof(GetProduct), new { id = product.Id }, MapToDto(product));
     }
 
@@ -87,13 +89,16 @@ public class ProductsController(ProductDbContext db) : ControllerBase
     [Authorize(Roles = "Admin,StoreManager")]
     public async Task<IActionResult> UpdateProduct(Guid id, UpdateProductRequest req)
     {
+        var idStr = id.ToString().ToLower();
         var product = await db.Products
             .Include(p => p.Category)
-            .FirstOrDefaultAsync(p => p.Id == id);
+            .FirstOrDefaultAsync(p => p.Id.ToString().ToLower() == idStr);
 
         if (product == null) return NotFound();
 
-        var category = await db.Categories.FindAsync(req.CategoryId);
+        var catIdStr = req.CategoryId.ToString().ToLower();
+        var category = await db.Categories
+            .FirstOrDefaultAsync(c => c.Id.ToString().ToLower() == catIdStr);
         if (category == null)
             return BadRequest(new { error = "Category not found" });
 
@@ -102,7 +107,7 @@ public class ProductsController(ProductDbContext db) : ControllerBase
         product.Price = req.Price;
         product.Sku = req.Sku;
         product.ImageUrl = req.ImageUrl;
-        product.CategoryId = req.CategoryId;
+        product.CategoryId = category.Id;
         product.Category = category;
         product.StockQuantity = req.StockQuantity;
         product.Brand = req.Brand;
@@ -119,7 +124,9 @@ public class ProductsController(ProductDbContext db) : ControllerBase
     [Authorize(Roles = "Admin")]
     public async Task<IActionResult> DeleteProduct(Guid id)
     {
-        var product = await db.Products.FindAsync(id);
+        var idStr = id.ToString().ToLower();
+        var product = await db.Products
+            .FirstOrDefaultAsync(p => p.Id.ToString().ToLower() == idStr);
         if (product == null) return NotFound();
 
         product.IsActive = false;
